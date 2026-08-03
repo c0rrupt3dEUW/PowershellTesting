@@ -15,20 +15,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create Output Folder
+      - name: Record existing files
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path Output
+          Get-ChildItem -Recurse -File |
+            Select-Object FullName |
+            Export-Csv before.csv -NoTypeInformation
 
       - name: Run Script
         shell: pwsh
         run: |
-          $path = "${{ github.event.inputs.scriptPath }}"
-          & $path
+          & "${{ github.event.inputs.scriptPath }}"
+
+      - name: Find new output files
+        shell: pwsh
+        run: |
+          $before = Import-Csv before.csv
+
+          $after = Get-ChildItem -Recurse -File |
+            Where-Object { $_.Extension -in '.txt','.csv','.xlsx' }
+
+          $newFiles = $after | Where-Object {
+            $_.FullName -notin $before.FullName
+          }
+
+          New-Item -ItemType Directory -Force -Path Artifacts
+
+          foreach ($file in $newFiles) {
+            Copy-Item $file.FullName Artifacts
+          }
 
       - name: Upload Outputs
         uses: actions/upload-artifact@v4
         with:
           name: output-${{ github.run_number }}
-          path: Output/**
+          path: Artifacts/**
           if-no-files-found: ignore
