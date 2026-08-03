@@ -19,7 +19,9 @@ jobs:
         shell: pwsh
         run: |
           Get-ChildItem -Recurse -File |
-            Where-Object { $_.Extension -in '.txt','.csv','.xlsx' } |
+            Where-Object {
+              $_.Extension -in '.txt','.csv','.xlsx'
+            } |
             Select-Object FullName, LastWriteTimeUtc |
             Export-Csv before.csv -NoTypeInformation
 
@@ -33,10 +35,14 @@ jobs:
         run: |
           $before = Import-Csv before.csv
 
-          $after = Get-ChildItem -Recurse -File |
-            Where-Object { $_.Extension -in '.txt','.csv','.xlsx' }
-
           New-Item -ItemType Directory -Force -Path Artifacts
+
+          $after = Get-ChildItem -Recurse -File |
+            Where-Object {
+              $_.Extension -in '.txt','.csv','.xlsx' -and
+              $_.Name -ne 'before.csv' -and
+              $_.FullName -notmatch '\\Artifacts\\'
+            }
 
           foreach ($file in $after) {
 
@@ -52,18 +58,13 @@ jobs:
             }
             else {
               # Existing file modified
-              $beforeTime = [datetime]$existing.LastWriteTimeUtc
-              $afterTime = $file.LastWriteTimeUtc
-
-              if ($afterTime -gt $beforeTime) {
+              if ($file.LastWriteTimeUtc -gt ([datetime]$existing.LastWriteTimeUtc)) {
                 $copyFile = $true
               }
             }
 
             if ($copyFile) {
-              $destination = Join-Path "Artifacts" $file.Name
-              Copy-Item $file.FullName $destination -Force
-              Write-Host "Added artifact: $($file.FullName)"
+              Copy-Item $file.FullName Artifacts -Force
             }
           }
 
