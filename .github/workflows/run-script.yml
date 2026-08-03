@@ -6,7 +6,7 @@ on:
       scriptPath:
         description: Path to PowerShell script
         required: true
-        default: Scripts/TestFolder/test.ps1
+        default: Path_to_script_here
 
 jobs:
   run:
