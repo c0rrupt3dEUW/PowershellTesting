@@ -6,8 +6,8 @@ pipeline {
     parameters {
         string(
             name: 'SCRIPT_PATH',
-            defaultValue: 'Path_to_script_here',
-            description: 'Path to PowerShell script'
+            defaultValue: 'Scripts\\MyScript.ps1',
+            description: 'Path to the PowerShell script within the repository'
         )
     }
 
@@ -35,23 +35,29 @@ pipeline {
         stage('Run Script') {
             steps {
                 powershell """
+                Write-Host "Running script: ${params.SCRIPT_PATH}"
+
+                if (!(Test-Path "${params.SCRIPT_PATH}")) {
+                    throw "Script not found: ${params.SCRIPT_PATH}"
+                }
+
                 & "${params.SCRIPT_PATH}"
                 """
             }
         }
 
-        stage('Find New or Modified Files') {
+        stage('Find New Or Modified Files') {
             steps {
                 powershell '''
                 $before = Import-Csv before.csv
 
-                New-Item -ItemType Directory -Force -Path Artifacts
+                New-Item -ItemType Directory -Force -Path Artifacts | Out-Null
 
                 $after = Get-ChildItem -Recurse -File |
                     Where-Object {
                         $_.Extension -in '.txt','.csv','.xlsx' -and
                         $_.Name -ne 'before.csv' -and
-                        $_.FullName -notmatch '\\\\Artifacts\\\\'
+                        $_.FullName -notmatch '\\Artifacts\\'
                     }
 
                 foreach ($file in $after) {
@@ -70,20 +76,6 @@ pipeline {
                     }
 
                     if ($copyFile) {
-                        Copy-Item $file.FullName Artifacts -Force
-                    }
-                }
-                '''
-            }
-        }
-    }
 
-    post {
-        always {
-            archiveArtifacts(
-                artifacts: 'Artifacts/**',
-                allowEmptyArchive: true
-            )
-        }
-    }
-}
+                        $relativePath = $file.FullName.Substring($PWD.Path.Length + 1)
+                      
