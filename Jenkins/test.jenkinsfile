@@ -1,0 +1,89 @@
+pipeline {
+    agent {
+        label 'windows'
+    }
+
+    parameters {
+        string(
+            name: 'SCRIPT_PATH',
+            defaultValue: 'Path_to_script_here',
+            description: 'Path to PowerShell script'
+        )
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Record Existing Files') {
+            steps {
+                powershell '''
+                Get-ChildItem -Recurse -File |
+                    Where-Object {
+                        $_.Extension -in '.txt','.csv','.xlsx'
+                    } |
+                    Select-Object FullName, LastWriteTimeUtc |
+                    Export-Csv before.csv -NoTypeInformation
+                '''
+            }
+        }
+
+        stage('Run Script') {
+            steps {
+                powershell """
+                & "${params.SCRIPT_PATH}"
+                """
+            }
+        }
+
+        stage('Find New or Modified Files') {
+            steps {
+                powershell '''
+                $before = Import-Csv before.csv
+
+                New-Item -ItemType Directory -Force -Path Artifacts
+
+                $after = Get-ChildItem -Recurse -File |
+                    Where-Object {
+                        $_.Extension -in '.txt','.csv','.xlsx' -and
+                        $_.Name -ne 'before.csv' -and
+                        $_.FullName -notmatch '\\\\Artifacts\\\\'
+                    }
+
+                foreach ($file in $after) {
+
+                    $existing = $before | Where-Object {
+                        $_.FullName -eq $file.FullName
+                    }
+
+                    $copyFile = $false
+
+                    if (-not $existing) {
+                        $copyFile = $true
+                    }
+                    elseif ($file.LastWriteTimeUtc -gt ([datetime]$existing.LastWriteTimeUtc)) {
+                        $copyFile = $true
+                    }
+
+                    if ($copyFile) {
+                        Copy-Item $file.FullName Artifacts -Force
+                    }
+                }
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts(
+                artifacts: 'Artifacts/**',
+                allowEmptyArchive: true
+            )
+        }
+    }
+}
