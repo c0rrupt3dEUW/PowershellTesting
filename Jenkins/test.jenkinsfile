@@ -22,12 +22,12 @@ pipeline {
         stage('Record Existing Files') {
             steps {
                 powershell '''
-                Get-ChildItem -Recurse -File |
-                    Where-Object {
-                        $_.Extension -in '.txt','.csv','.xlsx'
-                    } |
-                    Select-Object FullName, LastWriteTimeUtc |
-                    Export-Csv before.csv -NoTypeInformation
+                    Get-ChildItem -Recurse -File |
+                        Where-Object {
+                            $_.Extension -in '.txt','.csv','.xlsx'
+                        } |
+                        Select-Object FullName, LastWriteTimeUtc |
+                        Export-Csv before.csv -NoTypeInformation
                 '''
             }
         }
@@ -35,13 +35,13 @@ pipeline {
         stage('Run Script') {
             steps {
                 powershell """
-                Write-Host "Running script: ${params.SCRIPT_PATH}"
+                    Write-Host "Running script: ${params.SCRIPT_PATH}"
 
-                if (!(Test-Path "${params.SCRIPT_PATH}")) {
-                    throw "Script not found: ${params.SCRIPT_PATH}"
-                }
+                    if (!(Test-Path "${params.SCRIPT_PATH}")) {
+                        throw "Script not found: ${params.SCRIPT_PATH}"
+                    }
 
-                & "${params.SCRIPT_PATH}"
+                    & "${params.SCRIPT_PATH}"
                 """
             }
         }
@@ -49,33 +49,56 @@ pipeline {
         stage('Find New Or Modified Files') {
             steps {
                 powershell '''
-                $before = Import-Csv before.csv
+                    $before = Import-Csv before.csv
 
-                New-Item -ItemType Directory -Force -Path Artifacts | Out-Null
+                    New-Item -ItemType Directory -Force -Path Artifacts | Out-Null
 
-                $after = Get-ChildItem -Recurse -File |
-                    Where-Object {
-                        $_.Extension -in '.txt','.csv','.xlsx' -and
-                        $_.Name -ne 'before.csv' -and
-                        $_.FullName -notmatch '\\Artifacts\\'
+                    $after = Get-ChildItem -Recurse -File |
+                        Where-Object {
+                            $_.Extension -in '.txt','.csv','.xlsx' -and
+                            $_.Name -ne 'before.csv' -and
+                            $_.FullName -notmatch '\\Artifacts\\'
+                        }
+
+                    foreach ($file in $after) {
+
+                        $existing = $before | Where-Object {
+                            $_.FullName -eq $file.FullName
+                        }
+
+                        $copyFile = $false
+
+                        if (-not $existing) {
+                            $copyFile = $true
+                        }
+                        elseif ($file.LastWriteTimeUtc -gt ([datetime]$existing.LastWriteTimeUtc)) {
+                            $copyFile = $true
+                        }
+
+                        if ($copyFile) {
+
+                            $relativePath = $file.FullName.Substring($PWD.Path.Length + 1)
+                            $destination = Join-Path "Artifacts" $relativePath
+
+                            New-Item `
+                                -ItemType Directory `
+                                -Force `
+                                -Path (Split-Path $destination) | Out-Null
+
+                            Copy-Item $file.FullName $destination -Force
+                        }
                     }
+                '''
+            }
+        }
+    }
 
-                foreach ($file in $after) {
-
-                    $existing = $before | Where-Object {
-                        $_.FullName -eq $file.FullName
-                    }
-
-                    $copyFile = $false
-
-                    if (-not $existing) {
-                        $copyFile = $true
-                    }
-                    elseif ($file.LastWriteTimeUtc -gt ([datetime]$existing.LastWriteTimeUtc)) {
-                        $copyFile = $true
-                    }
-
-                    if ($copyFile) {
-
-                        $relativePath = $file.FullName.Substring($PWD.Path.Length + 1)
-                      
+    post {
+        always {
+            archiveArtifacts(
+                artifacts: 'Artifacts/**',
+                allowEmptyArchive: true
+            )
+        }
+    }
+}
